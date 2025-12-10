@@ -43,13 +43,6 @@ fn main() -> anyhow::Result<()> {
         .filter_map(|entry| {
             let entry = entry.ok()?;
 
-            // Skip hook-related proto files
-            if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                if file_name.starts_with("hook_") || file_name.starts_with("lambda_") {
-                    return None;
-                }
-            }
-
             match entry.file_type().ok()?.is_file().then(|| entry.path()) {
                 Some(path) => {
                     let service_src_path = services_tmp_path
