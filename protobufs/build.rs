@@ -8,6 +8,9 @@ use std::fs::{
 };
 use std::path::Path;
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 use anyhow::Ok;
 use regex::RegexBuilder;
 
@@ -45,6 +48,9 @@ fn main() -> anyhow::Result<()> {
         &fs_extra::dir::CopyOptions::new().overwrite(true).copy_inside(false),
     )?;
     fs::rename(out_path.join("services"), &services_tmp_path)?;
+
+    // Make all copied files writable (needed for NixOS and other read-only file systems)
+    make_writable_recursive(&services_tmp_path)?;
 
     let services: Vec<_> = read_dir(&services_tmp_path)?
         .chain(read_dir(&services_tmp_path.join("auxiliary").join("tss"))?)
@@ -250,6 +256,34 @@ fn main() -> anyhow::Result<()> {
     // see note wrt services.
     remove_useless_comments(&sdk_out_dir.join("proto.rs"))?;
 
+    Ok(())
+}
+
+/// Make all files in a directory tree writable.
+/// This is necessary when building on NixOS or other systems where source files may be read-only.
+fn make_writable_recursive(path: &Path) -> anyhow::Result<()> {
+    if path.is_dir() {
+        for entry in read_dir(path)? {
+            let entry = entry?;
+            make_writable_recursive(&entry.path())?;
+        }
+    } else if path.is_file() {
+        #[cfg(unix)]
+        {
+            let metadata = fs::metadata(path)?;
+            let mut permissions = metadata.permissions();
+            // Add write permission for owner
+            permissions.set_mode(permissions.mode() | 0o200);
+            fs::set_permissions(path, permissions)?;
+        }
+        #[cfg(not(unix))]
+        {
+            let metadata = fs::metadata(path)?;
+            let mut permissions = metadata.permissions();
+            permissions.set_readonly(false);
+            fs::set_permissions(path, permissions)?;
+        }
+    }
     Ok(())
 }
 
